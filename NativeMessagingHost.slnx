@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="NativeMessagingHost/NativeMessagingHost.vcxproj" />
+  <Project Path="NativeMessagingHost/NativeMessagingHost.vcxproj" Id="e6e7d3e7-c388-4ead-8fa8-724180554748" />
 </Solution>

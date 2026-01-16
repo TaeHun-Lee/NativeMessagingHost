@@ -1,0 +1,18 @@
+{
+  "name": "IME Auto Switcher",
+  "version": "1.0",
+  "manifest_version": 3,
+  "description": "로그인 시 자동으로 한글 입력 모드로 전환합니다.",
+  "permissions": [
+    "nativeMessaging"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}
