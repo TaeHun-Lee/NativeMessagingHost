@@ -1,9 +1,0 @@
-{
-  "name": "com.einz.imehelper",
-  "description": "IME Helper for Edge",
-  "path": "NativeMessagingHost.exe",
-  "type": "stdio",
-  "allowed_origins": [
-    "extension://aepcijmddeagnagcfgalfckanpnldlfa/"
-  ]
-}
