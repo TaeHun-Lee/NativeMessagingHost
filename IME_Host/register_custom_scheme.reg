@@ -1,0 +1,12 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CLASSES_ROOT\einzime]
+@="URL:Einz IME Protocol"
+"URL Protocol"=""
+
+[HKEY_CLASSES_ROOT\einzime\shell]
+
+[HKEY_CLASSES_ROOT\einzime\shell\open]
+
+[HKEY_CLASSES_ROOT\einzime\shell\open\command]
+@="\"C:\\IME_Host\\NativeMessagingHost.exe\" \"%1\""
