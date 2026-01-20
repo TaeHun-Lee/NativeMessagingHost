@@ -1,0 +1,33 @@
+Windows Registry Editor Version 5.00
+
+;; ============================================================
+;; 1. Custom Scheme (einzime://) 등록
+;; ============================================================
+[HKEY_CLASSES_ROOT\einzime]
+@="URL:Einz IME Protocol"
+"URL Protocol"=""
+
+[HKEY_CLASSES_ROOT\einzime\shell]
+
+[HKEY_CLASSES_ROOT\einzime\shell\open]
+
+[HKEY_CLASSES_ROOT\einzime\shell\open\command]
+@="\"C:\\IME_Host\\IME_Helper.exe\" \"%1\""
+
+;; ============================================================
+;; 2. Microsoft Edge 정책 설정
+;; ============================================================
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Edge\AutoLaunchProtocolsFromOrigins]
+"einzime_config"="[{\"allowed_origins\": [\"*\"], \"protocol\": \"einzime\"}]"
+
+;; ============================================================
+;; 3. Google Chrome 정책 설정
+;; ============================================================
+[HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Google\Chrome\AutoLaunchProtocolsFromOrigins]
+"einzime_config"="[{\"allowed_origins\": [\"*\"], \"protocol\": \"einzime\"}]"
+
+;; ============================================================
+;; 4. NativeMessagingHosts 등록
+;; ============================================================
+[HKEY_CURRENT_USER\Software\Microsoft\Edge\NativeMessagingHosts\com.einz.imehelper]
+@="C:\\IME_Host\\einz_imehelper.json"
