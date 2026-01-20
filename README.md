@@ -19,6 +19,8 @@
 | **단점** | • **단방향 호출** (결과값 수신 불가)<br> • 최초 실행 시 실행허가 팝업 노출됨<br> • AutoLaunchProtocolsFromOrigins 레지스트리 등록하지 않을 경우 액션으로만 실행될 수 있음 | • 브라우저 확장 프로그램(Extension) 배포 및 설치 필요<br>• 구조가 상대적으로 복잡함 |
 | **공통 사항** | **[필수]** Windows 레지스트리 등록 필요 (AutoLaunchProtocolsFromOrigins) | **[필수]** Windows 레지스트리 등록 필요(NativeMessagingHosts) |
 
+![image](./captures/readme1.png)
+![image](./captures/readme2.png)
 ---
 
 ## 2. 사용 방법 (Usage)
