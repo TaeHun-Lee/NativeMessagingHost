@@ -19,7 +19,6 @@
 #define IMC_SETCONVERSIONMODE 0x0002
 #endif
 
-// [수동 정의] imm.h 포함이 안 될 경우를 위한 안전장치
 #ifndef IMC_GETOPENSTATUS
 #define IMC_GETOPENSTATUS 0x0005
 #endif
@@ -35,55 +34,7 @@ void LogDebug(const wstring& msg) {
     OutputDebugStringW((L"[IME_HELPER] " + msg + L"\n").c_str());
 }
 
-// 내 프로세스의 부모 프로세스 ID(즉, Edge)를 찾는 함수
-DWORD GetParentProcessId() {
-    DWORD myPid = GetCurrentProcessId();
-    DWORD parentPid = 0;
-    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-
-    if (hSnapshot != INVALID_HANDLE_VALUE) {
-        PROCESSENTRY32 pe32;
-        pe32.dwSize = sizeof(PROCESSENTRY32);
-
-        if (Process32First(hSnapshot, &pe32)) {
-            do {
-                if (pe32.th32ProcessID == myPid) {
-                    parentPid = pe32.th32ParentProcessID;
-                    break;
-                }
-            } while (Process32Next(hSnapshot, &pe32));
-        }
-        CloseHandle(hSnapshot);
-    }
-    return parentPid;
-}
-
-// 특정 PID를 가진 프로세스의 메인 윈도우 핸들을 찾는 콜백 데이터
-struct WindowSearchData {
-    DWORD targetPid;
-    HWND resultHwnd;
-};
-
-BOOL CALLBACK EnumWindowsCallback(HWND hwnd, LPARAM lParam) {
-    WindowSearchData* data = reinterpret_cast<WindowSearchData*>(lParam);
-    DWORD windowPid = 0;
-    GetWindowThreadProcessId(hwnd, &windowPid);
-
-    // 해당 프로세스의 윈도우이면서, 화면에 보이는 창만 찾음
-    if (windowPid == data->targetPid && IsWindowVisible(hwnd)) {
-        data->resultHwnd = hwnd;
-        return FALSE; // 찾았으니 중단
-    }
-    return TRUE; // 계속 찾음
-}
-
-HWND FindWindowByProcessId(DWORD pid) {
-    WindowSearchData data = { pid, NULL };
-    EnumWindows(EnumWindowsCallback, reinterpret_cast<LPARAM>(&data));
-    return data.resultHwnd;
-}
-
-// 메시지 전송 방식으로 현재 한글 상태인지 확인
+// 현재 한글 상태인지 확인
 bool IsKoreanModeByMessage(HWND targetWindow) {
     HWND hIME = ImmGetDefaultIMEWnd(targetWindow);
 
@@ -93,7 +44,7 @@ bool IsKoreanModeByMessage(HWND targetWindow) {
     }
 
     // 메시지를 보내서 상태 확인 (IMC_GETOPENSTATUS)
-    // if 0 = 영문(닫힘), else 한글(열림)
+    // if 0 = 영문(닫힘), else = 한글(열림)
     LRESULT status = SendMessage(hIME, WM_IME_CONTROL, IMC_GETOPENSTATUS, 0);
     if (status != 0) {
         LogDebug(L"Check Result: KOREAN (Open)");
@@ -130,7 +81,7 @@ bool TrySetKoreanMode(HWND targetWindow) {
     return result;
 }
 
-// IME '한글 모드'로 강제 설정 변경 시도 함수
+// IME 강제 설정 변경 시도 함수
 bool ForceKoreanMode(HWND targetWindow) {
     HIMC hImc = ImmGetContext(targetWindow);
     if (hImc == NULL) return false;
@@ -153,12 +104,11 @@ bool ForceKoreanMode(HWND targetWindow) {
 
     // 윈도우 메시지로 강제 시도
     SendMessage(targetWindow, WM_IME_CONTROL, IMC_SETCONVERSIONMODE, IME_CMODE_HANGUL | IME_CMODE_NATIVE);
-
     ImmReleaseContext(targetWindow, hImc);
     return result;
 }
 
-// PID로 프로세스 이름을 확인하여 Edge인지 판별하는 함수
+// PID Edge인지 판별하는 함수
 bool IsEdgeProcess(DWORD pid) {
     if (pid == 0) return false;
 
@@ -182,7 +132,7 @@ bool IsEdgeProcess(DWORD pid) {
     return isEdge;
 }
 
-// Edge 브라우저가 Foreground가 될 때까지 기다렸다가 IME를 변경하는 함수
+// Edge 브라우저가 Foreground가 될 때까지 대기 후 IME를 변경하는 함수
 void WaitAndSetIME() {
     LogDebug(L"Waiting for any 'msedge.exe' window to become foreground...");
 
@@ -199,54 +149,52 @@ void WaitAndSetIME() {
 
                 DWORD targetThreadId = GetWindowThreadProcessId(hForeground, NULL);
                 DWORD currentThreadId = GetCurrentThreadId();
+                bool immSuccess = false;
 
                 // AttachThreadInput 시도
                 if (AttachThreadInput(currentThreadId, targetThreadId, TRUE)) {
                     LogDebug(L"AttachThreadInput Succeed! Attempting IME switch...");
+
                     HWND hFocus = GetFocus();
                     if (hFocus == NULL) hFocus = hForeground;
-                    bool immSuccess = false;
 
-                    // IME 상태 변경 시도
+                    // ImmGetContext로 변경 시도
                     if (TrySetKoreanMode(hFocus)) {
-                        LogDebug(L"TrySetKoreanMode Succeed!");
-                        AttachThreadInput(currentThreadId, targetThreadId, FALSE);
                         immSuccess = true;
                     }
-					// 강제 변경 시도
                     else if (ForceKoreanMode(hFocus)) {
-                        LogDebug(L"ForceKoreanMode Succeed!");
-                        AttachThreadInput(currentThreadId, targetThreadId, FALSE);
                         immSuccess = true;
                     }
-                    // ImmGetContext가 NULL을 뱉었을 경우
                     else {
                         LogDebug(L"All IMM APIs failed! (Sandbox blocked context)");
                     }
+
+                    // ImmGetDefaultIMEWnd로 현재 IME 상태 확인
+                    if (!immSuccess) {
+                        if (IsKoreanModeByMessage(hFocus)) {
+                            LogDebug(L"Check Result: Already Korean. Skipping Fallback.");
+                            immSuccess = true; // 이미 한글이면 스킵
+                        }
+                    }
+
                     // 스레드 분리
                     AttachThreadInput(currentThreadId, targetThreadId, FALSE);
+
                     if (immSuccess) return;
                 }
                 else {
-                    // 에러 코드 5 (ACCESS_DENIED): 권한 문제 또는 32/64비트 불일치
-                    // 에러 코드 87 (INVALID_PARAMETER): TID 문제
-                    LogDebug(L"AttachThreadInput failed!");
+                    // Attach 실패 시
                     DWORD err = GetLastError();
                     wchar_t buf[100];
                     swprintf_s(buf, L"Attach Failed! Error Code: %d", err);
                     LogDebug(buf);
                 }
 
-                // AttachThreadInput이 실패하거나 ImmGetContext가 실패했을 경우 시도
-                if (IsKoreanModeByMessage(hForeground)) {
-                    LogDebug(L"Already Korean Mode. No action needed.");
-                }
-                else {
-                    LogDebug(L"Not in Korean Mode. Executing Fallback (Key Press)");
-                    // 키보드 신호로 전환 (IMM 실패 시)
-                    keybd_event(VK_HANGUL, 0, 0, 0);
-                    keybd_event(VK_HANGUL, 0, KEYEVENTF_KEYUP, 0);
-                }
+                // 키보드 신호 발송으로 전환
+                LogDebug(L"Executing Fallback: Excecute Key Press event.");
+                keybd_event(VK_HANGUL, 0, 0, 0);
+                keybd_event(VK_HANGUL, 0, KEYEVENTF_KEYUP, 0);
+
                 return;
             }
         }
@@ -276,11 +224,12 @@ int APIENTRY wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
     while (true) {
         unsigned int length = 0;
 
+        // stdin에서 길이 읽기
         cin.read(reinterpret_cast<char*>(&length), 4);
 
         // 브라우저가 연결을 끊거나 파이프가 깨지면 루프 종료
         if (cin.eof()) break;
-        if (length == 0) continue; // 0바이트가 올 경우 무시
+        if (length == 0) continue;
 
         if (length > 0) {
             string message(length, ' ');
