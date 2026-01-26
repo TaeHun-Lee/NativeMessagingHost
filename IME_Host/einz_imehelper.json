@@ -4,6 +4,6 @@
   "path": "C:\\IME_Host\\NativeMessagingHost.exe",
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://aepcijmddeagnagcfgalfckanpnldlfa/"
+    "chrome-extension://${익스텐션ID값}/"
   ]
 }
