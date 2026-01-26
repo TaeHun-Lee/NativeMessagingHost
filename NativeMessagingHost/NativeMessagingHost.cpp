@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <windows.h>
+#include <imm.h>
 #include <tlhelp32.h>
 #include <io.h>
 #include <fcntl.h>
@@ -13,6 +14,19 @@
 #pragma comment(lib, "imm32.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "psapi.lib")
+
+#ifndef IMC_SETCONVERSIONMODE
+#define IMC_SETCONVERSIONMODE 0x0002
+#endif
+
+// [수동 정의] imm.h 포함이 안 될 경우를 위한 안전장치
+#ifndef IMC_GETOPENSTATUS
+#define IMC_GETOPENSTATUS 0x0005
+#endif
+
+#ifndef IMC_SETOPENSTATUS
+#define IMC_SETOPENSTATUS 0x0006
+#endif
 
 using namespace std;
 
@@ -69,6 +83,28 @@ HWND FindWindowByProcessId(DWORD pid) {
     return data.resultHwnd;
 }
 
+// 메시지 전송 방식으로 현재 한글 상태인지 확인
+bool IsKoreanModeByMessage(HWND targetWindow) {
+    HWND hIME = ImmGetDefaultIMEWnd(targetWindow);
+
+    if (hIME == NULL) {
+        LogDebug(L"Failed to get Default IME Window.");
+        return false;
+    }
+
+    // 메시지를 보내서 상태 확인 (IMC_GETOPENSTATUS)
+    // if 0 = 영문(닫힘), else 한글(열림)
+    LRESULT status = SendMessage(hIME, WM_IME_CONTROL, IMC_GETOPENSTATUS, 0);
+    if (status != 0) {
+        LogDebug(L"Check Result: KOREAN (Open)");
+        return true;
+    }
+    else {
+        LogDebug(L"Check Result: ENGLISH (Closed) or Failed");
+        return false;
+    }
+}
+
 // IME 변경 시도 함수
 bool TrySetKoreanMode(HWND targetWindow) {
     HIMC hImc = ImmGetContext(targetWindow);
@@ -90,6 +126,34 @@ bool TrySetKoreanMode(HWND targetWindow) {
             result = true;
         }
     }
+    ImmReleaseContext(targetWindow, hImc);
+    return result;
+}
+
+// IME '한글 모드'로 강제 설정 변경 시도 함수
+bool ForceKoreanMode(HWND targetWindow) {
+    HIMC hImc = ImmGetContext(targetWindow);
+    if (hImc == NULL) return false;
+
+    bool result = false;
+    DWORD dwConversion, dwSentence;
+    if (ImmGetConversionStatus(hImc, &dwConversion, &dwSentence)) {
+        DWORD newConversion = dwConversion | IME_CMODE_HANGUL | IME_CMODE_NATIVE;
+        if (ImmSetConversionStatus(hImc, newConversion, dwSentence)) {
+            LogDebug(L"Success: Forced IME to Korean Mode.");
+            result = true;
+        }
+    }
+    else {
+        if (ImmSetConversionStatus(hImc, IME_CMODE_HANGUL | IME_CMODE_NATIVE, 0)) {
+            LogDebug(L"Success: Blindly Forced IME to Korean Mode.");
+            result = true;
+        }
+    }
+
+    // 윈도우 메시지로 강제 시도
+    SendMessage(targetWindow, WM_IME_CONTROL, IMC_SETCONVERSIONMODE, IME_CMODE_HANGUL | IME_CMODE_NATIVE);
+
     ImmReleaseContext(targetWindow, hImc);
     return result;
 }
@@ -136,27 +200,56 @@ void WaitAndSetIME() {
                 DWORD targetThreadId = GetWindowThreadProcessId(hForeground, NULL);
                 DWORD currentThreadId = GetCurrentThreadId();
 
-                // 1. AttachThreadInput 시도
+                // AttachThreadInput 시도
                 if (AttachThreadInput(currentThreadId, targetThreadId, TRUE)) {
+                    LogDebug(L"AttachThreadInput Succeed! Attempting IME switch...");
                     HWND hFocus = GetFocus();
                     if (hFocus == NULL) hFocus = hForeground;
+                    bool immSuccess = false;
 
-                    // 2. IME 상태 변경 시도
+                    // IME 상태 변경 시도
                     if (TrySetKoreanMode(hFocus)) {
+                        LogDebug(L"TrySetKoreanMode Succeed!");
                         AttachThreadInput(currentThreadId, targetThreadId, FALSE);
-                        return; // 성공 시 종료
+                        immSuccess = true;
                     }
+					// 강제 변경 시도
+                    else if (ForceKoreanMode(hFocus)) {
+                        LogDebug(L"ForceKoreanMode Succeed!");
+                        AttachThreadInput(currentThreadId, targetThreadId, FALSE);
+                        immSuccess = true;
+                    }
+                    // ImmGetContext가 NULL을 뱉었을 경우
+                    else {
+                        LogDebug(L"All IMM APIs failed! (Sandbox blocked context)");
+                    }
+                    // 스레드 분리
                     AttachThreadInput(currentThreadId, targetThreadId, FALSE);
+                    if (immSuccess) return;
+                }
+                else {
+                    // 에러 코드 5 (ACCESS_DENIED): 권한 문제 또는 32/64비트 불일치
+                    // 에러 코드 87 (INVALID_PARAMETER): TID 문제
+                    LogDebug(L"AttachThreadInput failed!");
+                    DWORD err = GetLastError();
+                    wchar_t buf[100];
+                    swprintf_s(buf, L"Attach Failed! Error Code: %d", err);
+                    LogDebug(buf);
                 }
 
-                // 3. Fallback (IMM 실패 시)
-                LogDebug(L"IMM failed. Executing Fallback (Key Press).");
-                keybd_event(VK_HANGUL, 0, 0, 0);
-                keybd_event(VK_HANGUL, 0, KEYEVENTF_KEYUP, 0);
-                return; // Fallback 수행 후 종료
+                // AttachThreadInput이 실패하거나 ImmGetContext가 실패했을 경우 시도
+                if (IsKoreanModeByMessage(hForeground)) {
+                    LogDebug(L"Already Korean Mode. No action needed.");
+                }
+                else {
+                    LogDebug(L"Not in Korean Mode. Executing Fallback (Key Press)");
+                    // 키보드 신호로 전환 (IMM 실패 시)
+                    keybd_event(VK_HANGUL, 0, 0, 0);
+                    keybd_event(VK_HANGUL, 0, KEYEVENTF_KEYUP, 0);
+                }
+                return;
             }
         }
-
         // Edge가 아니면 0.1초 대기
         Sleep(100);
     }
